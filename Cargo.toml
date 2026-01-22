@@ -1,6 +1,36 @@
 [package]
 name = "bambu-print-rs"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# MQTT
+rumqttd = "0.19"
+rumqttc = "0.24"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Utilities
+thiserror = "1"
+anyhow = "1"
+
+[dev-dependencies]
+
+[lib]
+name = "bambu_print_rs"
+path = "src/lib.rs"
