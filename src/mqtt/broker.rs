@@ -4,7 +4,7 @@ use anyhow::Result;
 use rumqttd::{Broker, Config};
 use std::collections::HashMap;
 use tokio::task::JoinHandle;
-use tracing::{info, error};
+use tracing::{error, info};
 
 /// Start the embedded MQTT broker
 pub async fn start_broker(port: u16) -> Result<JoinHandle<()>> {
@@ -29,6 +29,11 @@ pub async fn start_broker(port: u16) -> Result<JoinHandle<()>> {
 /// Create broker configuration
 fn create_broker_config(port: u16) -> Config {
     let mut config = Config::default();
+
+    // Configure router to allow multiple connections
+    config.router.max_connections = 10; // Allow publisher, handler, and external clients
+    config.router.max_segment_size = 256 * 1024; // 256KB segments
+    config.router.max_segment_count = 10; // Keep 10 segments in memory
 
     // Configure server settings
     let listen_addr = format!("0.0.0.0:{}", port).parse().unwrap();
@@ -86,5 +91,18 @@ mod tests {
         let server = v4_config.get("main").unwrap();
         assert_eq!(server.connections.max_payload_size, 256 * 1024);
         assert_eq!(server.connections.max_inflight_count, 100);
+    }
+
+    #[test]
+    fn test_router_max_connections() {
+        let config = create_broker_config(1883);
+        assert_eq!(config.router.max_connections, 10);
+    }
+
+    #[test]
+    fn test_router_segment_settings() {
+        let config = create_broker_config(1883);
+        assert_eq!(config.router.max_segment_size, 256 * 1024);
+        assert_eq!(config.router.max_segment_count, 10);
     }
 }

@@ -1,7 +1,7 @@
 //! MQTT message types for Bambu Lab protocol
 
-use serde::{Deserialize, Serialize};
 use crate::state::PrinterState;
+use serde::{Deserialize, Serialize};
 
 /// Top-level report message (emulator -> client)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -123,9 +123,11 @@ impl AmsReport {
                 .iter()
                 .map(AmsUnitReport::from_unit)
                 .collect(),
-            ams_exist_bits: "1".to_string(), // One AMS unit
+            ams_exist_bits: "1".to_string(),  // One AMS unit
             tray_exist_bits: "f".to_string(), // All 4 trays (0xF = 1111 binary)
-            tray_now: ams_state.current_tray.map_or("0".to_string(), |t| t.to_string()),
+            tray_now: ams_state
+                .current_tray
+                .map_or("0".to_string(), |t| t.to_string()),
             version: 3,
         }
     }

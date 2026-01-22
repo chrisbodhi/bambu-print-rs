@@ -49,7 +49,7 @@ impl Default for AmsState {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AmsUnit {
     pub id: u8,
-    pub humidity: u8,    // 0-5 scale
+    pub humidity: u8, // 0-5 scale
     pub temp: f32,
     pub trays: [FilamentTray; 4],
 }
@@ -76,9 +76,9 @@ impl AmsUnit {
 pub struct FilamentTray {
     pub id: u8,
     pub present: bool,
-    pub filament_type: String,  // "PLA", "PETG", "ABS", etc.
-    pub color: String,          // Hex RRGGBBAA, e.g., "FF5733FF"
-    pub remaining_percent: u8,  // 0-100
+    pub filament_type: String, // "PLA", "PETG", "ABS", etc.
+    pub color: String,         // Hex RRGGBBAA, e.g., "FF5733FF"
+    pub remaining_percent: u8, // 0-100
     pub nozzle_temp_min: u16,
     pub nozzle_temp_max: u16,
     pub bed_temp: u16,

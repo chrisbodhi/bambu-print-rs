@@ -8,7 +8,7 @@ pub mod mqtt;
 pub mod state;
 
 pub use config::EmulatorConfig;
-pub use state::{PrinterState, GcodeState};
+pub use state::{GcodeState, PrinterState};
 
 use anyhow::Result;
 use std::sync::Arc;
@@ -24,9 +24,7 @@ pub struct Emulator {
 impl Emulator {
     /// Create a new emulator with the given configuration
     pub fn new(config: EmulatorConfig) -> Self {
-        let state = Arc::new(RwLock::new(PrinterState::new(
-            config.serial_number.clone(),
-        )));
+        let state = Arc::new(RwLock::new(PrinterState::new(config.serial_number.clone())));
 
         Self { config, state }
     }
@@ -44,9 +42,11 @@ impl Emulator {
         let state_clone = Arc::clone(&self.state);
         let serial = self.config.serial_number.clone();
         let status_interval = self.config.status_interval_ms;
+        let mqtt_port = self.config.mqtt_port;
 
         let publish_handle = tokio::spawn(async move {
-            mqtt::publisher::run_status_publisher(state_clone, serial, status_interval).await
+            mqtt::publisher::run_status_publisher(state_clone, serial, status_interval, mqtt_port)
+                .await
         });
 
         // Start MQTT command handler

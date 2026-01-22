@@ -7,8 +7,8 @@ use tokio::sync::RwLock;
 use tokio::time::Duration;
 use tracing::{debug, error, info, warn};
 
+use super::messages::{Command, ReportMessage, RequestMessage};
 use crate::state::PrinterState;
-use super::messages::{Command, RequestMessage, ReportMessage};
 
 /// Run the command handler (subscribes to request topic)
 pub async fn run_command_handler(
@@ -19,7 +19,7 @@ pub async fn run_command_handler(
     info!("Starting command handler");
 
     // Create MQTT client
-    let mut mqttoptions = MqttOptions::new("bambu-emulator-handler", "127.0.0.1", mqtt_port);
+    let mut mqttoptions = MqttOptions::new("bambu-handler", "127.0.0.1", mqtt_port);
     mqttoptions.set_keep_alive(Duration::from_secs(30));
 
     let (client, mut eventloop) = AsyncClient::new(mqttoptions, 10);
@@ -64,7 +64,10 @@ pub async fn run_command_handler(
                         });
                     }
                     Err(e) => {
-                        warn!("Failed to parse request message: {}. Payload: {}", e, payload);
+                        warn!(
+                            "Failed to parse request message: {}. Payload: {}",
+                            e, payload
+                        );
                     }
                 }
             }
@@ -94,7 +97,10 @@ async fn handle_command(
 
                 match serde_json::to_string(&report) {
                     Ok(json) => {
-                        if let Err(e) = client.publish(&report_topic, QoS::AtLeastOnce, false, json).await {
+                        if let Err(e) = client
+                            .publish(&report_topic, QoS::AtLeastOnce, false, json)
+                            .await
+                        {
                             error!("Failed to publish pushall response: {}", e);
                         }
                     }

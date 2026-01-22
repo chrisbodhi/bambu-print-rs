@@ -7,19 +7,20 @@ use tokio::sync::RwLock;
 use tokio::time::{interval, Duration};
 use tracing::{debug, error, info};
 
-use crate::state::PrinterState;
 use super::messages::ReportMessage;
+use crate::state::PrinterState;
 
 /// Run the status publishing loop
 pub async fn run_status_publisher(
     state: Arc<RwLock<PrinterState>>,
     serial_number: String,
     interval_ms: u64,
+    mqtt_port: u16,
 ) -> Result<()> {
     info!("Starting status publisher");
 
     // Create MQTT client
-    let mut mqttoptions = MqttOptions::new("bambu-emulator-publisher", "127.0.0.1", 1883);
+    let mut mqttoptions = MqttOptions::new("bambu-pub", "127.0.0.1", mqtt_port);
     mqttoptions.set_keep_alive(Duration::from_secs(30));
 
     let (client, mut eventloop) = AsyncClient::new(mqttoptions, 10);
@@ -77,7 +78,9 @@ pub async fn publish_status(
     let json = serde_json::to_string(&report)?;
     let topic = format!("device/{}/report", serial_number);
 
-    client.publish(&topic, QoS::AtLeastOnce, false, json).await?;
+    client
+        .publish(&topic, QoS::AtLeastOnce, false, json)
+        .await?;
     Ok(())
 }
 
@@ -105,6 +108,9 @@ mod tests {
     #[test]
     fn test_mqtt_options_creation() {
         let mqttoptions = MqttOptions::new("test-publisher", "127.0.0.1", 1883);
-        assert_eq!(mqttoptions.broker_address(), ("127.0.0.1".to_string(), 1883));
+        assert_eq!(
+            mqttoptions.broker_address(),
+            ("127.0.0.1".to_string(), 1883)
+        );
     }
 }
