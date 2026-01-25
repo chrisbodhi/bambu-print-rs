@@ -14,6 +14,7 @@ pub struct EmulatorConfig {
 
     // Simulation
     pub status_interval_ms: u64,
+    pub time_multiplier: f32,
 
     // Identity
     pub serial_number: String,
@@ -27,6 +28,7 @@ impl EmulatorConfig {
             mqtt_tls_enabled: false,
             access_code: None,
             status_interval_ms: 1000,
+            time_multiplier: 100.0, // 100x speed by default
             serial_number: "00M00A000000001".to_string(),
         }
     }
@@ -63,6 +65,12 @@ impl EmulatorConfig {
         }
         self
     }
+
+    /// Set time multiplier for simulation speed
+    pub fn with_time_multiplier(mut self, multiplier: f32) -> Self {
+        self.time_multiplier = multiplier;
+        self
+    }
 }
 
 impl Default for EmulatorConfig {
@@ -81,6 +89,7 @@ mod tests {
         assert_eq!(config.mqtt_port, 1883);
         assert!(!config.mqtt_tls_enabled);
         assert_eq!(config.status_interval_ms, 1000);
+        assert_eq!(config.time_multiplier, 100.0);
         assert_eq!(config.serial_number, "00M00A000000001");
         assert!(config.access_code.is_none());
     }
@@ -117,6 +126,12 @@ mod tests {
     }
 
     #[test]
+    fn test_with_time_multiplier() {
+        let config = EmulatorConfig::new().with_time_multiplier(50.0);
+        assert_eq!(config.time_multiplier, 50.0);
+    }
+
+    #[test]
     fn test_builder_pattern() {
         let config = EmulatorConfig::new()
             .with_serial("TEST456".to_string())
@@ -145,10 +160,12 @@ mod tests {
             "mqtt_tls_enabled": false,
             "access_code": null,
             "status_interval_ms": 1000,
+            "time_multiplier": 100.0,
             "serial_number": "00M00A000000001"
         }"#;
         let config: EmulatorConfig = serde_json::from_str(json).unwrap();
         assert_eq!(config.mqtt_port, 1883);
         assert_eq!(config.serial_number, "00M00A000000001");
+        assert_eq!(config.time_multiplier, 100.0);
     }
 }

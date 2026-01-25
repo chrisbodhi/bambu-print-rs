@@ -1,6 +1,8 @@
 //! Printer state types
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 /// Main printer state
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -19,6 +21,7 @@ pub struct PrinterState {
 
     // Print state
     pub gcode_state: GcodeState,
+    pub print_job: Option<PrintJob>,
 
     // Hardware
     pub ams: super::AmsState,
@@ -40,6 +43,142 @@ pub struct PrinterState {
     pub speed_magnitude: u8, // 50-166 (percentage)
 }
 
+/// Active print job state
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrintJob {
+    pub task_id: String,
+    pub subtask_name: String,
+    pub gcode_file: String,
+    pub plate_number: u8,
+
+    // Progress
+    pub mc_percent: u8,         // 0-100
+    pub layer_num: u32,
+    pub total_layer_num: u32,
+    pub mc_remaining_time: u32, // minutes
+
+    // Timing
+    #[serde(with = "chrono::serde::ts_seconds")]
+    pub start_time: DateTime<Utc>,
+    #[serde(with = "duration_serde")]
+    pub estimated_total_time: Duration,
+
+    // Simulation bookkeeping
+    pub current_stage: PrintStage,
+    #[serde(with = "chrono::serde::ts_seconds")]
+    pub stage_started_at: DateTime<Utc>,
+
+    // Print options
+    pub bed_levelling: bool,
+    pub use_ams: bool,
+    pub ams_mapping: Vec<u8>,
+}
+
+impl PrintJob {
+    /// Create a new print job
+    pub fn new(
+        task_id: String,
+        subtask_name: String,
+        gcode_file: String,
+        plate_number: u8,
+        total_layers: u32,
+        estimated_time_mins: u32,
+        bed_levelling: bool,
+        use_ams: bool,
+        ams_mapping: Vec<u8>,
+        target_nozzle_temp: f32,
+        target_bed_temp: f32,
+    ) -> Self {
+        let now = Utc::now();
+        Self {
+            task_id,
+            subtask_name,
+            gcode_file,
+            plate_number,
+            mc_percent: 0,
+            layer_num: 0,
+            total_layer_num: total_layers,
+            mc_remaining_time: estimated_time_mins,
+            start_time: now,
+            estimated_total_time: Duration::from_secs((estimated_time_mins as u64) * 60),
+            current_stage: PrintStage::Heating {
+                target_nozzle: target_nozzle_temp,
+                target_bed: target_bed_temp,
+            },
+            stage_started_at: now,
+            bed_levelling,
+            use_ams,
+            ams_mapping,
+        }
+    }
+
+    /// Advance to the next print stage
+    pub fn advance_stage(&mut self, next_stage: PrintStage) {
+        self.current_stage = next_stage;
+        self.stage_started_at = Utc::now();
+    }
+
+    /// Update progress based on layer completion
+    pub fn update_progress(&mut self, layer: u32) {
+        self.layer_num = layer.min(self.total_layer_num);
+        if self.total_layer_num > 0 {
+            self.mc_percent = ((self.layer_num as f32 / self.total_layer_num as f32) * 100.0) as u8;
+        }
+    }
+}
+
+/// Print simulation stages
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum PrintStage {
+    /// Heating nozzle and bed to target temperatures
+    Heating { target_nozzle: f32, target_bed: f32 },
+    /// Auto bed leveling
+    BedLeveling,
+    /// Purging/priming the nozzle
+    Purging,
+    /// Active printing
+    Printing,
+    /// Cooling down after print
+    Cooling,
+    /// Print complete
+    Complete,
+}
+
+impl PrintStage {
+    /// Get the stage number for MQTT reporting (stg_cur field)
+    pub fn as_stage_number(&self) -> u8 {
+        match self {
+            PrintStage::Heating { .. } => 0,
+            PrintStage::BedLeveling => 1,
+            PrintStage::Purging => 2,
+            PrintStage::Printing => 3,
+            PrintStage::Cooling => 4,
+            PrintStage::Complete => 5,
+        }
+    }
+}
+
+/// Custom serialization for Duration
+mod duration_serde {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    use std::time::Duration;
+
+    pub fn serialize<S>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        duration.as_secs().serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Duration, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let secs = u64::deserialize(deserializer)?;
+        Ok(Duration::from_secs(secs))
+    }
+}
+
 impl PrinterState {
     /// Create a new printer state with default values
     pub fn new(serial_number: String) -> Self {
@@ -55,6 +194,7 @@ impl PrinterState {
             chamber_temp: 25.0,
 
             gcode_state: GcodeState::Idle,
+            print_job: None,
 
             ams: super::AmsState::new(),
             lights_on: false,
@@ -81,6 +221,71 @@ impl PrinterState {
     /// Set chamber light state
     pub fn set_light(&mut self, on: bool) {
         self.lights_on = on;
+    }
+
+    /// Start a new print job
+    pub fn start_print(&mut self, job: PrintJob) {
+        self.gcode_state = GcodeState::Prepare;
+        self.nozzle_target_temp = match &job.current_stage {
+            PrintStage::Heating { target_nozzle, .. } => *target_nozzle,
+            _ => 210.0,
+        };
+        self.bed_target_temp = match &job.current_stage {
+            PrintStage::Heating { target_bed, .. } => *target_bed,
+            _ => 55.0,
+        };
+        self.print_job = Some(job);
+    }
+
+    /// Pause the current print job
+    pub fn pause_print(&mut self) -> bool {
+        if self.print_job.is_some() && self.gcode_state == GcodeState::Running {
+            self.gcode_state = GcodeState::Pause;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Resume a paused print job
+    pub fn resume_print(&mut self) -> bool {
+        if self.print_job.is_some() && self.gcode_state == GcodeState::Pause {
+            self.gcode_state = GcodeState::Running;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Stop/cancel the current print job
+    pub fn stop_print(&mut self) -> bool {
+        if self.print_job.is_some() {
+            self.print_job = None;
+            self.gcode_state = GcodeState::Idle;
+            self.nozzle_target_temp = 0.0;
+            self.bed_target_temp = 0.0;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Complete the current print job
+    pub fn complete_print(&mut self) {
+        self.print_job = None;
+        self.gcode_state = GcodeState::Finish;
+        self.nozzle_target_temp = 0.0;
+        self.bed_target_temp = 0.0;
+    }
+
+    /// Set nozzle target temperature (for gcode commands)
+    pub fn set_nozzle_target(&mut self, temp: f32) {
+        self.nozzle_target_temp = temp;
+    }
+
+    /// Set bed target temperature (for gcode commands)
+    pub fn set_bed_target(&mut self, temp: f32) {
+        self.bed_target_temp = temp;
     }
 }
 
@@ -232,5 +437,222 @@ mod tests {
         let deserialized: PrinterState = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.serial_number, state.serial_number);
         assert_eq!(deserialized.gcode_state, state.gcode_state);
+    }
+
+    #[test]
+    fn test_print_job_new() {
+        let job = PrintJob::new(
+            "task123".to_string(),
+            "benchy.3mf".to_string(),
+            "/cache/benchy.gcode".to_string(),
+            1,
+            100,
+            60,
+            true,
+            true,
+            vec![0, 1, 2, 3],
+            210.0,
+            55.0,
+        );
+
+        assert_eq!(job.task_id, "task123");
+        assert_eq!(job.subtask_name, "benchy.3mf");
+        assert_eq!(job.total_layer_num, 100);
+        assert_eq!(job.mc_percent, 0);
+        assert_eq!(job.layer_num, 0);
+        assert!(job.bed_levelling);
+        assert!(job.use_ams);
+        assert_eq!(
+            job.current_stage,
+            PrintStage::Heating {
+                target_nozzle: 210.0,
+                target_bed: 55.0
+            }
+        );
+    }
+
+    #[test]
+    fn test_print_job_update_progress() {
+        let mut job = PrintJob::new(
+            "task123".to_string(),
+            "benchy.3mf".to_string(),
+            "/cache/benchy.gcode".to_string(),
+            1,
+            100,
+            60,
+            true,
+            true,
+            vec![0],
+            210.0,
+            55.0,
+        );
+
+        job.update_progress(50);
+        assert_eq!(job.layer_num, 50);
+        assert_eq!(job.mc_percent, 50);
+
+        job.update_progress(100);
+        assert_eq!(job.layer_num, 100);
+        assert_eq!(job.mc_percent, 100);
+
+        // Can't exceed total layers
+        job.update_progress(150);
+        assert_eq!(job.layer_num, 100);
+    }
+
+    #[test]
+    fn test_print_job_advance_stage() {
+        let mut job = PrintJob::new(
+            "task123".to_string(),
+            "benchy.3mf".to_string(),
+            "/cache/benchy.gcode".to_string(),
+            1,
+            100,
+            60,
+            true,
+            true,
+            vec![0],
+            210.0,
+            55.0,
+        );
+
+        job.advance_stage(PrintStage::BedLeveling);
+        assert_eq!(job.current_stage, PrintStage::BedLeveling);
+
+        job.advance_stage(PrintStage::Printing);
+        assert_eq!(job.current_stage, PrintStage::Printing);
+    }
+
+    #[test]
+    fn test_print_stage_numbers() {
+        assert_eq!(
+            PrintStage::Heating {
+                target_nozzle: 210.0,
+                target_bed: 55.0
+            }
+            .as_stage_number(),
+            0
+        );
+        assert_eq!(PrintStage::BedLeveling.as_stage_number(), 1);
+        assert_eq!(PrintStage::Purging.as_stage_number(), 2);
+        assert_eq!(PrintStage::Printing.as_stage_number(), 3);
+        assert_eq!(PrintStage::Cooling.as_stage_number(), 4);
+        assert_eq!(PrintStage::Complete.as_stage_number(), 5);
+    }
+
+    #[test]
+    fn test_start_print() {
+        let mut state = PrinterState::new("TEST123".to_string());
+        assert!(state.print_job.is_none());
+        assert_eq!(state.gcode_state, GcodeState::Idle);
+
+        let job = PrintJob::new(
+            "task123".to_string(),
+            "benchy.3mf".to_string(),
+            "/cache/benchy.gcode".to_string(),
+            1,
+            100,
+            60,
+            true,
+            true,
+            vec![0],
+            210.0,
+            55.0,
+        );
+
+        state.start_print(job);
+
+        assert!(state.print_job.is_some());
+        assert_eq!(state.gcode_state, GcodeState::Prepare);
+        assert_eq!(state.nozzle_target_temp, 210.0);
+        assert_eq!(state.bed_target_temp, 55.0);
+    }
+
+    #[test]
+    fn test_pause_resume_print() {
+        let mut state = PrinterState::new("TEST123".to_string());
+        let job = PrintJob::new(
+            "task123".to_string(),
+            "benchy.3mf".to_string(),
+            "/cache/benchy.gcode".to_string(),
+            1,
+            100,
+            60,
+            true,
+            true,
+            vec![0],
+            210.0,
+            55.0,
+        );
+
+        state.start_print(job);
+        state.gcode_state = GcodeState::Running;
+
+        // Pause should succeed
+        assert!(state.pause_print());
+        assert_eq!(state.gcode_state, GcodeState::Pause);
+
+        // Resume should succeed
+        assert!(state.resume_print());
+        assert_eq!(state.gcode_state, GcodeState::Running);
+
+        // Pause when not running should fail
+        state.gcode_state = GcodeState::Pause;
+        assert!(!state.pause_print());
+    }
+
+    #[test]
+    fn test_stop_print() {
+        let mut state = PrinterState::new("TEST123".to_string());
+        let job = PrintJob::new(
+            "task123".to_string(),
+            "benchy.3mf".to_string(),
+            "/cache/benchy.gcode".to_string(),
+            1,
+            100,
+            60,
+            true,
+            true,
+            vec![0],
+            210.0,
+            55.0,
+        );
+
+        state.start_print(job);
+
+        assert!(state.stop_print());
+        assert!(state.print_job.is_none());
+        assert_eq!(state.gcode_state, GcodeState::Idle);
+        assert_eq!(state.nozzle_target_temp, 0.0);
+        assert_eq!(state.bed_target_temp, 0.0);
+
+        // Stop when no job should fail
+        assert!(!state.stop_print());
+    }
+
+    #[test]
+    fn test_complete_print() {
+        let mut state = PrinterState::new("TEST123".to_string());
+        let job = PrintJob::new(
+            "task123".to_string(),
+            "benchy.3mf".to_string(),
+            "/cache/benchy.gcode".to_string(),
+            1,
+            100,
+            60,
+            true,
+            true,
+            vec![0],
+            210.0,
+            55.0,
+        );
+
+        state.start_print(job);
+        state.complete_print();
+
+        assert!(state.print_job.is_none());
+        assert_eq!(state.gcode_state, GcodeState::Finish);
+        assert_eq!(state.nozzle_target_temp, 0.0);
+        assert_eq!(state.bed_target_temp, 0.0);
     }
 }

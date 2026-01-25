@@ -619,24 +619,24 @@ Provide JSON state files for various scenarios:
 
 ## Implementation Phases
 
-Phase 1: Core MQTT (MVP)
+Phase 1: Core MQTT (MVP) ✅
 
-- [ ] Basic project scaffolding
-- [ ] rumqttd embedded broker running
-- [ ] State types defined
-- [ ] Status publishing loop (every 1 sec)
-- [ ] Handle pushall command
-- [ ] CLI with basic options
+- [x] Basic project scaffolding
+- [x] rumqttd embedded broker running
+- [x] State types defined
+- [x] Status publishing loop (every 1 sec)
+- [x] Handle pushall command
+- [x] CLI with basic options
 
 Deliverable: Can connect with bambulabs_api, see IDLE status
 
-Phase 2: Print Simulation
+Phase 2: Print Simulation ✅
 
-- [ ] Command handler for print/pause/resume/stop
-- [ ] Print stage state machine
-- [ ] Temperature simulation
-- [ ] Layer progress simulation
-- [ ] Filament consumption tracking
+- [x] Command handler for print/pause/resume/stop
+- [x] Print stage state machine
+- [x] Temperature simulation
+- [x] Layer progress simulation
+- [x] Filament consumption tracking
 
 Deliverable: Can start a print and watch it progress to completion
 

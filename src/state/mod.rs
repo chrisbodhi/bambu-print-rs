@@ -4,4 +4,4 @@ pub mod ams;
 pub mod printer;
 
 pub use ams::{AmsState, AmsUnit, FilamentTray};
-pub use printer::{GcodeState, PrinterModel, PrinterState, SpeedLevel};
+pub use printer::{GcodeState, PrintJob, PrintStage, PrinterModel, PrinterState, SpeedLevel};

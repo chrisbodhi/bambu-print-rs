@@ -30,6 +30,10 @@ struct Args {
     #[arg(long, default_value = "1000")]
     status_interval: u64,
 
+    /// Simulation time multiplier (e.g., 100 = 100x speed)
+    #[arg(short, long, default_value = "100")]
+    time_multiplier: f32,
+
     /// Increase logging verbosity
     #[arg(short, long)]
     verbose: bool,
@@ -61,7 +65,8 @@ async fn main() -> Result<()> {
     let mut config = EmulatorConfig::new()
         .with_serial(args.serial)
         .with_mqtt_port(args.mqtt_port)
-        .with_status_interval(args.status_interval);
+        .with_status_interval(args.status_interval)
+        .with_time_multiplier(args.time_multiplier);
 
     if args.mqtt_tls {
         config = config.with_tls(true);

@@ -5,10 +5,12 @@
 
 pub mod config;
 pub mod mqtt;
+pub mod simulation;
 pub mod state;
 
 pub use config::EmulatorConfig;
-pub use state::{GcodeState, PrinterState};
+pub use simulation::SimulationConfig;
+pub use state::{GcodeState, PrintJob, PrintStage, PrinterState};
 
 use anyhow::Result;
 use std::sync::Arc;
@@ -29,11 +31,12 @@ impl Emulator {
         Self { config, state }
     }
 
-    /// Start the emulator (MQTT broker and status publishing loop)
+    /// Start the emulator (MQTT broker, status publishing loop, and simulation engine)
     pub async fn run(self) -> Result<()> {
         info!("Starting Bambu Lab emulator");
         info!("Serial number: {}", self.config.serial_number);
         info!("MQTT port: {}", self.config.mqtt_port);
+        info!("Time multiplier: {}x", self.config.time_multiplier);
 
         // Start MQTT broker
         let broker_handle = mqtt::broker::start_broker(self.config.mqtt_port).await?;
@@ -58,11 +61,20 @@ impl Emulator {
             mqtt::handler::run_command_handler(state_clone, serial, mqtt_port).await
         });
 
+        // Start simulation engine
+        let state_clone = Arc::clone(&self.state);
+        let sim_config = SimulationConfig::new(self.config.time_multiplier);
+
+        let simulation_handle = tokio::spawn(async move {
+            simulation::run_simulation_engine(state_clone, sim_config).await
+        });
+
         // Wait for tasks
         tokio::select! {
             _ = broker_handle => info!("MQTT broker stopped"),
             _ = publish_handle => info!("Status publisher stopped"),
             _ = handler_handle => info!("Command handler stopped"),
+            _ = simulation_handle => info!("Simulation engine stopped"),
         }
 
         Ok(())

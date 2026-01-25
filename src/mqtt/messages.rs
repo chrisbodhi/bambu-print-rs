@@ -31,6 +31,22 @@ pub struct PrintReport {
     // Print state
     pub gcode_state: String,
 
+    // Print progress (when printing)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mc_percent: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mc_remaining_time: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub layer_num: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_layer_num: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subtask_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gcode_file: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stg_cur: Option<u8>,
+
     // Hardware
     pub wifi_signal: String,
     pub spd_lvl: u8,
@@ -61,6 +77,22 @@ pub struct PrintReport {
 impl PrintReport {
     /// Create a print report from printer state
     pub fn from_state(state: &PrinterState) -> Self {
+        // Extract print job info if present
+        let (mc_percent, mc_remaining_time, layer_num, total_layer_num, subtask_name, gcode_file, stg_cur) =
+            if let Some(ref job) = state.print_job {
+                (
+                    Some(job.mc_percent),
+                    Some(job.mc_remaining_time),
+                    Some(job.layer_num),
+                    Some(job.total_layer_num),
+                    Some(job.subtask_name.clone()),
+                    Some(job.gcode_file.clone()),
+                    Some(job.current_stage.as_stage_number()),
+                )
+            } else {
+                (None, None, None, None, None, None, None)
+            };
+
         Self {
             nozzle_temper: state.nozzle_temp,
             nozzle_target_temper: state.nozzle_target_temp,
@@ -69,6 +101,14 @@ impl PrintReport {
             chamber_temper: state.chamber_temp,
 
             gcode_state: state.gcode_state.as_str().to_string(),
+
+            mc_percent,
+            mc_remaining_time,
+            layer_num,
+            total_layer_num,
+            subtask_name,
+            gcode_file,
+            stg_cur,
 
             wifi_signal: state.wifi_signal.clone(),
             spd_lvl: state.speed_level as u8,
@@ -214,8 +254,36 @@ pub struct PrintCommand {
 pub struct PrintCommandData {
     pub sequence_id: String,
     pub command: String,
+    /// G-code file path (for project_file) or G-code line content (for gcode_line)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub param: Option<String>,
+    /// FTP URL to the .3mf file (e.g., "ftp:///model.3mf")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// Name of the print job
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subtask_name: Option<String>,
+    /// Whether to use AMS
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub use_ams: Option<bool>,
+    /// AMS tray mapping (e.g., [0, 1, 2, 3])
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ams_mapping: Option<Vec<u8>>,
+    /// Enable timelapse recording
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timelapse: Option<bool>,
+    /// Enable bed leveling
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bed_levelling: Option<bool>,
+    /// Enable flow calibration
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub flow_cali: Option<bool>,
+    /// Enable vibration calibration
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vibration_cali: Option<bool>,
+    /// Enable layer inspection
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub layer_inspect: Option<bool>,
 }
 
 /// System command wrapper
